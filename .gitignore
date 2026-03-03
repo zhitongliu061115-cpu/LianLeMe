@@ -1,0 +1,14 @@
+# IntelliJ / Android Studio
+*.iml
+.idea/
+.DS_Store
+
+# Gradle / Build outputs
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local SDK config
+local.properties

@@ -1,0 +1,64 @@
+{
+  "days": [
+    {
+      "day": "monday",
+      "exercises": [
+        {"title": "核心肌群激活", "details": "3组 | 15次/组", "icon": "🧘"},
+        {"title": "全身爆发力训练", "details": "4组 | 10次/组", "icon": "🏋️"},
+        {"title": "有氧耐力跑", "details": "1组 | 30分钟", "icon": "🏃"},
+        {"title": "上肢力量训练", "details": "3组 | 12次/组", "icon": "💪"},
+        {"title": "柔韧性拉伸", "details": "2组 | 20分钟", "icon": "🤸"}
+      ]
+    },
+    {
+      "day": "tuesday",
+      "exercises": [
+        {"title": "腹肌强化", "details": "4组 | 20次/组", "icon": "🔥"},
+        {"title": "间歇冲刺跑", "details": "6组 | 200米/组", "icon": "⚡"},
+        {"title": "功能性训练", "details": "3组 | 15次/组", "icon": "🎯"},
+        {"title": "恢复拉伸", "details": "1组 | 25分钟", "icon": "🧘‍♂️"}
+      ]
+    },
+    {
+      "day": "wednesday",
+      "exercises": [
+        {"title": "力量循环训练", "details": "5组 | 8次/组", "icon": "💪"},
+        {"title": "核心稳定训练", "details": "3组 | 12次/组", "icon": "🧘"},
+        {"title": "有氧单车", "details": "1组 | 40分钟", "icon": "🚴"},
+        {"title": "肩部训练", "details": "3组 | 15次/组", "icon": "🏋️"}
+      ]
+    },
+    {
+      "day": "thursday",
+      "exercises": [
+        {"title": "下肢力量训练", "details": "4组 | 12次/组", "icon": "🦵"},
+        {"title": "臀部激活", "details": "3组 | 20次/组", "icon": "🔥"},
+        {"title": "跳绳有氧", "details": "5组 | 3分钟/组", "icon": "⚡"},
+        {"title": "全身拉伸", "details": "1组 | 20分钟", "icon": "🤸"}
+      ]
+    },
+    {
+      "day": "friday",
+      "exercises": []
+    },
+    {
+      "day": "saturday",
+      "exercises": [
+        {"title": "力量循环训练", "details": "5组 | 8次/组", "icon": "💪"},
+        {"title": "间歇冲刺跑", "details": "6组 | 200米/组", "icon": "⚡"},
+        {"title": "腹肌强化", "details": "4组 | 20次/组", "icon": "🔥"},
+        {"title": "功能性训练", "details": "3组 | 15次/组", "icon": "🎯"},
+        {"title": "恢复拉伸", "details": "1组 | 25分钟", "icon": "🧘‍♂️"}
+      ]
+    },
+    {
+      "day": "sunday",
+      "exercises": [
+        {"title": "轻松慢跑", "details": "1组 | 20分钟", "icon": "🏃"},
+        {"title": "瑜伽放松", "details": "1组 | 30分钟", "icon": "🧘"},
+        {"title": "泡沫轴放松", "details": "1组 | 15分钟", "icon": "🤸"}
+      ]
+    }
+  ]
+}
+
