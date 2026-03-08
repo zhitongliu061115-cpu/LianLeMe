@@ -1,14 +1,18 @@
 package com.example.helloapp.ui.home
 
+import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.helloapp.model.TrainingItem
@@ -20,8 +24,25 @@ fun HomeScreen(
     selectedNavItem: Int,
     onNavItemSelected: (Int) -> Unit,
     onStartTraining: (List<TrainingItem>, Int) -> Unit,
-    viewModel: HomeViewModel = viewModel()
+    username: String?,
+    refreshKey: Int
 ) {
+    val context = LocalContext.current
+    val app = context.applicationContext as Application
+
+    val factory = remember(username) {
+        HomeViewModel.Factory(app, username)
+    }
+
+    val viewModel: HomeViewModel = viewModel(
+        key = "home_${username ?: "guest"}",
+        factory = factory
+    )
+
+    LaunchedEffect(username, refreshKey) {
+        viewModel.refreshPlan()
+    }
+
     val selectedDay by viewModel.selectedDay.collectAsState()
     val trainingItems by viewModel.trainingItems.collectAsState()
     val greeting by viewModel.greeting.collectAsState()
@@ -61,5 +82,3 @@ fun HomeScreen(
         )
     }
 }
-
-
