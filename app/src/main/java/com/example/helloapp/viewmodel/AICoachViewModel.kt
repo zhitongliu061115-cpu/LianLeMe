@@ -1,16 +1,18 @@
 package com.example.helloapp.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.helloapp.data.remote.AiApiService
 import com.example.helloapp.data.remote.AiConfig
 import com.example.helloapp.data.repository.CoachRepository
 import com.example.helloapp.model.ChatMessage
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import android.util.Log
 
 class AICoachViewModel : ViewModel() {
 
@@ -39,12 +41,32 @@ class AICoachViewModel : ViewModel() {
     private val _suggestedPrompts = MutableStateFlow<List<String>>(emptyList())
     val suggestedPrompts: StateFlow<List<String>> = _suggestedPrompts.asStateFlow()
 
+    private val _isRecording = MutableStateFlow(false)
+    val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
+
+    private val _speechError = MutableStateFlow<String?>(null)
+    val speechError: StateFlow<String?> = _speechError.asStateFlow()
+
+    private val _speakText = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val speakText = _speakText.asSharedFlow()
+
+    private val _ttsEnabled = MutableStateFlow(true)
+    val ttsEnabled: StateFlow<Boolean> = _ttsEnabled.asStateFlow()
+
+    init {
+        pingServer()
+    }
+
     fun onInputChanged(newText: String) {
         _inputText.value = newText
     }
 
     fun clearError() {
         _errorMessage.value = null
+    }
+
+    fun setTtsEnabled(enabled: Boolean) {
+        _ttsEnabled.value = enabled
     }
 
     fun sendMessage() {
@@ -75,10 +97,13 @@ class AICoachViewModel : ViewModel() {
                     isUser = false
                 )
                 _suggestedPrompts.value = data.suggested_prompts
+
+                if (_ttsEnabled.value) {
+                    _speakText.tryEmit(data.reply)
+                }
             }.onFailure { e ->
                 Log.e("AI_CHAT", "聊天失败", e)
                 _errorMessage.value = e.message ?: "请求失败"
-
             }
 
             _isSending.value = false
@@ -89,17 +114,51 @@ class AICoachViewModel : ViewModel() {
         _inputText.value = prompt
         sendMessage()
     }
-    init {
-        pingServer()
+
+    fun startRecordingUi() {
+        if (_isSending.value) return
+        _speechError.value = null
+        _isRecording.value = true
+    }
+
+    fun stopRecordingUi() {
+        _isRecording.value = false
+    }
+
+    fun startVoiceInput() {
+        _speechError.value = null
+        _inputText.value = ""
+        _isRecording.value = true
+    }
+
+    fun appendVoiceChunk(text: String) {
+        if (text.isBlank()) return
+        _inputText.value = text
+    }
+
+    fun finishVoiceInputAndSend() {
+        _isRecording.value = false
+        if (_inputText.value.trim().isNotBlank()) {
+            sendMessage()
+        }
+    }
+
+    fun onSpeechError(message: String) {
+        _isRecording.value = false
+        _speechError.value = message
+    }
+
+    fun clearSpeechError() {
+        _speechError.value = null
     }
 
     private fun pingServer() {
         viewModelScope.launch {
             val result = repository.ping()
             result.onSuccess {
-                android.util.Log.d("AI_CHAT", "服务器连接成功")
+                Log.d("AI_CHAT", "服务器连接成功")
             }.onFailure { e ->
-                android.util.Log.e("AI_CHAT", "服务器连接失败", e)
+                Log.e("AI_CHAT", "服务器连接失败", e)
             }
         }
     }
