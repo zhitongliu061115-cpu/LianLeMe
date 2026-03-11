@@ -1,11 +1,18 @@
 package com.example.helloapp.data
 
 import android.content.Context
+import com.example.helloapp.data.remote.AiApiService
+import com.example.helloapp.data.remote.AiConfig
 import com.example.helloapp.model.UserProfile
+import com.example.helloapp.model.ai.ApiResponse
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class UserRepository(private val context: Context) {
     private val gson = Gson()
+    private val api = AiApiService(AiConfig.BASE_URL)
     private val draftFile get() = context.filesDir.resolve("user_profile_draft.json")
 
     private fun sanitizeForFileName(username: String): String {
@@ -18,8 +25,33 @@ class UserRepository(private val context: Context) {
     private fun fileFor(username: String) =
         context.filesDir.resolve("user_profile_${sanitizeForFileName(username)}.json")
 
-    fun save(username: String, profile: UserProfile) {
-        fileFor(username).writeText(gson.toJson(profile))
+    suspend fun save(username: String, profile: UserProfile): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val jsonBody = """
+                {
+                    "user_id": "$username",
+                    "gender": "${profile.gender}",
+                    "age": ${profile.age},
+                    "height_cm": ${profile.heightCm},
+                    "weight_kg": ${profile.weightKg},
+                    "goals": "${profile.goals.joinToString(",")}",
+                    "focus_areas": "${profile.focusAreas.joinToString(",")}",
+                    "workout_types": "${profile.workoutTypes.joinToString(",")}"
+                }
+            """.trimIndent()
+
+            val rawResponse = api.postJson("/save_profile", jsonBody)
+
+            // 使用正规 Gson 解析
+            val type = object : TypeToken<ApiResponse<Any>>() {}.type
+            val response: ApiResponse<Any> = gson.fromJson(rawResponse, type)
+
+            if (response.code != 200) {
+                throw Exception("同步云端档案失败: ${response.msg}")
+            }
+
+            fileFor(username).writeText(gson.toJson(profile))
+        }
     }
 
     fun load(username: String): UserProfile? = runCatching {
@@ -29,7 +61,6 @@ class UserRepository(private val context: Context) {
 
     fun hasProfile(username: String): Boolean = fileFor(username).exists()
 
-    // 未登录用户在引导里填的数据，先暂存，登录/注册成功后再归档到对应账号
     fun saveDraft(profile: UserProfile) {
         draftFile.writeText(gson.toJson(profile))
     }
@@ -42,4 +73,3 @@ class UserRepository(private val context: Context) {
         if (draftFile.exists()) draftFile.delete()
     }
 }
-

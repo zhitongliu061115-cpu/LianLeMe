@@ -13,14 +13,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import androidx.lifecycle.ViewModelProvider // 新增
 
-class AICoachViewModel : ViewModel() {
+class AICoachViewModel(private val username: String) : ViewModel() {
 
     private val repository = CoachRepository(
         api = AiApiService(AiConfig.BASE_URL)
     )
 
-    private val userId = "user_001"
+
 
     private val _messages = MutableStateFlow(
         listOf(
@@ -86,7 +87,7 @@ class AICoachViewModel : ViewModel() {
 
         viewModelScope.launch {
             val result = repository.sendMessage(
-                userId = userId,
+                userId = username,
                 message = text,
                 currentMessages = currentList
             )
@@ -160,6 +161,14 @@ class AICoachViewModel : ViewModel() {
             }.onFailure { e ->
                 Log.e("AI_CHAT", "服务器连接失败", e)
             }
+        }
+    }
+
+    // 4. 新增 Factory 用于注入参数
+    class Factory(private val username: String) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return AICoachViewModel(username) as T
         }
     }
 }

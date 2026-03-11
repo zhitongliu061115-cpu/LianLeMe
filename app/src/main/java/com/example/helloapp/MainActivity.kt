@@ -22,6 +22,13 @@ import com.example.helloapp.ui.onboarding.PlanGeneratingScreen
 import com.example.helloapp.ui.settings.SettingsScreen
 import com.example.helloapp.ui.theme.HelloAppTheme
 import com.example.helloapp.ui.training.TrainingScreen
+import com.example.helloapp.viewmodel.AICoachViewModel
+
+// 2. 导入 Compose 的 viewModel 函数
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+// 3. 导入 ViewModelProvider（Factory 需要用到）
+import androidx.lifecycle.ViewModelProvider
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -83,42 +90,46 @@ fun FitnessApp() {
             onFinish = { profile ->
                 val username = currentUsername ?: return@OnboardingScreen
 
-                // 先切到“生成中”界面，避免先进入首页看到默认计划
+                // 1. 显示加载动画
                 isGeneratingPlan = true
 
+                // 2. 启动协程进行网络请求
                 scope.launch {
                     try {
-                        // 1. 先保存画像
-                        userRepo.save(username, profile)
-                        profileVersion++
-                        settingsRefreshKey++
+                        // 【修改点】因为 userRepo.save 变成了 suspend 网络请求，所以会在这里挂起等待
+                        val saveResult = userRepo.save(username, profile)
 
-                        // 2. 同步账户资料，供设置页展示
-                        accountRepo.currentAccount()?.let { acct ->
-                            accountRepo.updateAccount(
-                                acct.copy(
-                                    gender = profile.gender,
-                                    age = profile.age.toString(),
-                                    heightCm = profile.heightCm.toInt().toString(),
-                                    weightKg = profile.weightKg.toInt().toString(),
-                                    goal = profile.goals.joinToString("、")
+                        saveResult.onSuccess {
+                            profileVersion++
+                            settingsRefreshKey++
+
+                            // 3. 更新本地账户资料缓存
+                            accountRepo.currentAccount()?.let { acct ->
+                                accountRepo.updateAccount(
+                                    acct.copy(
+                                        gender = profile.gender,
+                                        age = profile.age.toString(),
+                                        heightCm = profile.heightCm.toInt().toString(),
+                                        weightKg = profile.weightKg.toInt().toString(),
+                                        goal = profile.goals.joinToString("、")
+                                    )
                                 )
-                            )
+                            }
+
+                            // 4. 调用后端生成专属计划并落盘 (耗时操作)
+                            val planResult = planRepo.generateAndSaveUserPlan(username, profile)
+                            planResult.onFailure {
+                                Log.e("FitnessApp", "生成计划失败: ${it.message}", it)
+                            }
+
+                            // 5. 通知首页刷新
+                            planGenerationFinishedToken++
+                        }.onFailure { e ->
+                            Log.e("FitnessApp", "保存档案到云端失败: ${e.message}", e)
+                            // 这里可以考虑加一个 Toast 提示用户保存失败
                         }
-
-                        // 3. 调用后端生成专属计划并落盘
-                        val result = planRepo.generateAndSaveUserPlan(username, profile)
-
-                        result.onFailure {
-                            Log.e("FitnessApp", "生成计划失败: ${it.message}", it)
-                        }
-
-                        // 4. 生成结束后通知首页刷新一次
-                        planGenerationFinishedToken++
                     } finally {
-                        // 无论成功还是失败，都结束生成页
-                        // 成功 -> 首页优先读到用户计划
-                        // 失败 -> 首页回退默认计划
+                        // 6. 无论成功失败，关闭加载动画，进入首页
                         isGeneratingPlan = false
                     }
                 }
@@ -144,10 +155,24 @@ fun FitnessApp() {
                 refreshKey = planGenerationFinishedToken
             )
 
-            1 -> AICoachScreen(
-                selectedNavItem = selectedNavItem,
-                onNavItemSelected = { selectedNavItem = it }
-            )
+            1 -> {
+                // 此时编译器已经能通过 import 找到 AICoachViewModel 了
+                val coachFactory = remember(currentUsername) {
+                    AICoachViewModel.Factory(currentUsername ?: "guest")
+                }
+
+                // 此时编译器已经能通过 import 找到 viewModel() 函数了
+                val coachViewModel: AICoachViewModel = viewModel(
+                    key = "coach_${currentUsername ?: "guest"}",
+                    factory = coachFactory
+                )
+
+                AICoachScreen(
+                    selectedNavItem = selectedNavItem,
+                    onNavItemSelected = { selectedNavItem = it },
+                    viewModel = coachViewModel
+                )
+            }
 
             2 -> SettingsScreen(
                 selectedNavItem = selectedNavItem,

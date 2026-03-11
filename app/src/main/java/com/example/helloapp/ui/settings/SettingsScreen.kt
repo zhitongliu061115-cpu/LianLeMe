@@ -26,10 +26,10 @@ import coil.compose.AsyncImage
 import com.example.helloapp.data.AccountRepository
 import com.example.helloapp.model.Account
 import com.example.helloapp.ui.components.BottomNavigation
+import kotlinx.coroutines.launch
 import java.io.File
 
 private val ACCENT = Color(0xFF6DD5C3)
-
 
 @Composable
 fun SettingsScreen(
@@ -43,6 +43,11 @@ fun SettingsScreen(
     val repo = remember { AccountRepository(context) }
     var account by remember { mutableStateOf<Account?>(repo.currentAccount()) }
     var isEditing by remember { mutableStateOf(false) }
+
+    // 修复点 1：将协程作用域和加载状态移入 Composable 函数内部
+    val scope = rememberCoroutineScope()
+    var isSaving by remember { mutableStateOf(false) }
+
     var editName by remember { mutableStateOf("") }
     var editAvatarUri by remember { mutableStateOf<Uri?>(null) }
     var editGender by remember { mutableStateOf("保密") }
@@ -295,6 +300,7 @@ fun SettingsScreen(
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
                     ) { Text("取消") }
 
+                    // 修复点 2：将原来单纯的 repo.updateAccount 替换为包含网络请求的协程逻辑
                     Button(
                         onClick = {
                             val old = account ?: return@Button
@@ -323,16 +329,28 @@ fun SettingsScreen(
                                 goal = editGoal.trim(),
                                 signature = editSignature.trim()
                             )
-                            repo.updateAccount(updated)
-                            account = updated
-                            isEditing = false
-                            editAvatarUri = null
-                            Toast.makeText(context, "资料已更新", Toast.LENGTH_SHORT).show()
+
+                            // 开启加载状态并向服务器提交
+                            isSaving = true
+                            scope.launch {
+                                val result = repo.updateSettingsToServer(updated)
+                                result.onSuccess {
+                                    repo.updateAccount(updated) // 云端成功后，更新本地文件
+                                    account = updated           // 刷新 UI
+                                    isEditing = false
+                                    editAvatarUri = null
+                                    Toast.makeText(context, "资料已成功同步到云端", Toast.LENGTH_SHORT).show()
+                                }.onFailure { e ->
+                                    Toast.makeText(context, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                                }
+                                isSaving = false
+                            }
                         },
                         modifier = Modifier.weight(1f).height(52.dp),
                         shape = RoundedCornerShape(12.dp),
+                        enabled = !isSaving, // 保存时按钮变灰不可点
                         colors = ButtonDefaults.buttonColors(containerColor = ACCENT)
-                    ) { Text("保存") }
+                    ) { Text(if (isSaving) "保存中..." else "保存") }
                 }
             } else {
                 Button(
@@ -391,6 +409,3 @@ private fun ProfileInfoRow(leftLabel: String, leftValue: String, rightLabel: Str
         }
     }
 }
-
-
-

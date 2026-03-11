@@ -73,15 +73,17 @@ class PlanRepository(
     suspend fun generatePlan(username: String, profile: UserProfile): Result<GeneratedPlan> =
         withContext(Dispatchers.IO) {
             runCatching {
+                // 核心修改：直接将 UserProfile 里的列表转换为逗号分隔的字符串发送给后端
                 val request = GeneratePlanRequest(
                     user_id = username,
                     profile = PlanProfilePayload(
-                        gender = profile.gender.ifBlank { "未知" },
+                        gender = profile.gender.ifBlank { "unknown" },
                         height_cm = profile.heightCm.toDouble(),
                         weight_kg = profile.weightKg.toDouble(),
                         age = profile.age.takeIf { it > 0 } ?: 25,
-                        goal = buildGoal(profile),
-                        strength_level = "beginner"
+                        goals = profile.goals.joinToString(","),
+                        focus_areas = profile.focusAreas.joinToString(","),
+                        workout_types = profile.workoutTypes.joinToString(",")
                     )
                 )
 

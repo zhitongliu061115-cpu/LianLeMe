@@ -5,8 +5,9 @@ data class PlanProfilePayload(
     val height_cm: Double,
     val weight_kg: Double,
     val age: Int,
-    val goal: String,
-    val strength_level: String
+    val goals: String,          // 对应数据库 goals
+    val focus_areas: String,    // 对应数据库 focus_areas
+    val workout_types: String   // 对应数据库 workout_types
 )
 
 data class GeneratePlanRequest(
