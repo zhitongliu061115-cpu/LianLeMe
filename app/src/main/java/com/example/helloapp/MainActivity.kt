@@ -1,21 +1,34 @@
 package com.example.helloapp
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+
 import com.example.helloapp.data.AccountRepository
+import com.example.helloapp.data.PlanRepository
 import com.example.helloapp.data.UserRepository
 import com.example.helloapp.model.TrainingItem
 import com.example.helloapp.ui.auth.AuthScreen
 import com.example.helloapp.ui.coach.AICoachScreen
 import com.example.helloapp.ui.home.HomeScreen
 import com.example.helloapp.ui.onboarding.OnboardingScreen
+import com.example.helloapp.ui.onboarding.PlanGeneratingScreen
 import com.example.helloapp.ui.settings.SettingsScreen
 import com.example.helloapp.ui.theme.HelloAppTheme
 import com.example.helloapp.ui.training.TrainingScreen
+import com.example.helloapp.viewmodel.AICoachViewModel
+
+// 2. 导入 Compose 的 viewModel 函数
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+// 3. 导入 ViewModelProvider（Factory 需要用到）
+import androidx.lifecycle.ViewModelProvider
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,11 +47,14 @@ fun FitnessApp() {
     val context = LocalContext.current
     val userRepo = remember { UserRepository(context) }
     val accountRepo = remember { AccountRepository(context) }
+    val planRepo = remember { PlanRepository(context) }
+    val scope = rememberCoroutineScope()
 
     // 核心状态：当前登录账号
     var currentUsername by remember {
         mutableStateOf(accountRepo.currentAccount()?.username)
     }
+
     var profileVersion by remember { mutableStateOf(0) }
     var selectedNavItem by remember { mutableStateOf(0) }
     var showTrainingScreen by remember { mutableStateOf(false) }
@@ -46,47 +62,86 @@ fun FitnessApp() {
     var currentExercises by remember { mutableStateOf<List<TrainingItem>>(emptyList()) }
     var currentStartIndex by remember { mutableStateOf(0) }
 
-    // 流程：未登录→登录页 | 已登录无资料→引导页 | 已登录有资料→主页
+    // 计划生成状态
+    var isGeneratingPlan by remember { mutableStateOf(false) }
+    var planGenerationFinishedToken by remember { mutableStateOf(0) }
+
+    // 流程：未登录→登录页 | 已登录无资料→引导页 | 生成中→生成页 | 已登录有资料→主页
     val isLoggedIn = currentUsername != null
-    // profileVersion 参与计算，确保保存后能触发 recompose
     val hasProfile = currentUsername?.let {
-        profileVersion; userRepo.hasProfile(it)
+        profileVersion
+        userRepo.hasProfile(it)
     } ?: false
 
     when {
         !isLoggedIn -> AuthScreen(
             onSuccess = {
                 currentUsername = accountRepo.currentAccount()?.username
+                selectedNavItem = 0
+                showTrainingScreen = false
                 settingsRefreshKey++
             },
             onBack = { /* 未登录不允许返回，留在登录页 */ }
         )
+
+        isGeneratingPlan -> PlanGeneratingScreen()
+
         !hasProfile -> OnboardingScreen(
             onFinish = { profile ->
-                currentUsername?.let { username ->
-                    userRepo.save(username, profile)
-                    // 把引导页数据同步写入 Account（设置页直接可见）
-                    accountRepo.currentAccount()?.let { acct ->
-                        accountRepo.updateAccount(
-                            acct.copy(
-                                gender = profile.gender,
-                                age = profile.age.toString(),
-                                heightCm = profile.heightCm.toInt().toString(),
-                                weightKg = profile.weightKg.toInt().toString(),
-                                goal = profile.goals.joinToString("、")
-                            )
-                        )
+                val username = currentUsername ?: return@OnboardingScreen
+
+                // 1. 显示加载动画
+                isGeneratingPlan = true
+
+                // 2. 启动协程进行网络请求
+                scope.launch {
+                    try {
+                        // 【修改点】因为 userRepo.save 变成了 suspend 网络请求，所以会在这里挂起等待
+                        val saveResult = userRepo.save(username, profile)
+
+                        saveResult.onSuccess {
+                            profileVersion++
+                            settingsRefreshKey++
+
+                            // 3. 更新本地账户资料缓存
+                            accountRepo.currentAccount()?.let { acct ->
+                                accountRepo.updateAccount(
+                                    acct.copy(
+                                        gender = profile.gender,
+                                        age = profile.age.toString(),
+                                        heightCm = profile.heightCm.toInt().toString(),
+                                        weightKg = profile.weightKg.toInt().toString(),
+                                        goal = profile.goals.joinToString("、")
+                                    )
+                                )
+                            }
+
+                            // 4. 调用后端生成专属计划并落盘 (耗时操作)
+                            val planResult = planRepo.generateAndSaveUserPlan(username, profile)
+                            planResult.onFailure {
+                                Log.e("FitnessApp", "生成计划失败: ${it.message}", it)
+                            }
+
+                            // 5. 通知首页刷新
+                            planGenerationFinishedToken++
+                        }.onFailure { e ->
+                            Log.e("FitnessApp", "保存档案到云端失败: ${e.message}", e)
+                            // 这里可以考虑加一个 Toast 提示用户保存失败
+                        }
+                    } finally {
+                        // 6. 无论成功失败，关闭加载动画，进入首页
+                        isGeneratingPlan = false
                     }
                 }
-                profileVersion++
-                settingsRefreshKey++
             }
         )
+
         showTrainingScreen -> TrainingScreen(
             exercises = currentExercises,
             startIndex = currentStartIndex,
             onBack = { showTrainingScreen = false }
         )
+
         else -> when (selectedNavItem) {
             0 -> HomeScreen(
                 selectedNavItem = selectedNavItem,
@@ -95,12 +150,30 @@ fun FitnessApp() {
                     currentExercises = exercises
                     currentStartIndex = startIndex
                     showTrainingScreen = true
+                },
+                username = currentUsername,
+                refreshKey = planGenerationFinishedToken
+            )
+
+            1 -> {
+                // 此时编译器已经能通过 import 找到 AICoachViewModel 了
+                val coachFactory = remember(currentUsername) {
+                    AICoachViewModel.Factory(currentUsername ?: "guest")
                 }
-            )
-            1 -> AICoachScreen(
-                selectedNavItem = selectedNavItem,
-                onNavItemSelected = { selectedNavItem = it }
-            )
+
+                // 此时编译器已经能通过 import 找到 viewModel() 函数了
+                val coachViewModel: AICoachViewModel = viewModel(
+                    key = "coach_${currentUsername ?: "guest"}",
+                    factory = coachFactory
+                )
+
+                AICoachScreen(
+                    selectedNavItem = selectedNavItem,
+                    onNavItemSelected = { selectedNavItem = it },
+                    viewModel = coachViewModel
+                )
+            }
+
             2 -> SettingsScreen(
                 selectedNavItem = selectedNavItem,
                 onNavItemSelected = { selectedNavItem = it },
@@ -108,11 +181,14 @@ fun FitnessApp() {
                 onLogout = {
                     currentUsername = null
                     selectedNavItem = 0
+                    showTrainingScreen = false
+                    currentExercises = emptyList()
+                    currentStartIndex = 0
+                    isGeneratingPlan = false
+                    planGenerationFinishedToken = 0
                 },
                 refreshKey = settingsRefreshKey
             )
         }
     }
 }
-
-

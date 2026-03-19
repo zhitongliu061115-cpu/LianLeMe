@@ -1,55 +1,126 @@
 package com.example.helloapp.data
 
 import android.content.Context
+import android.util.Log
+import com.example.helloapp.data.remote.AiApiService
+import com.example.helloapp.data.remote.AiConfig
 import com.example.helloapp.model.Account
+import com.example.helloapp.model.ai.ApiResponse
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.security.MessageDigest
 
 class AccountRepository(private val context: Context) {
     private val gson = Gson()
-    private val accountsFile get() = context.filesDir.resolve("accounts.json")
+    private val api = AiApiService(AiConfig.BASE_URL)
     private val currentFile get() = context.filesDir.resolve("current_account.json")
 
+    // 恢复密码加密，保证存入数据库的是哈希值
     private fun hash(password: String): String {
         val bytes = MessageDigest.getInstance("SHA-256").digest(password.toByteArray())
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
-    private fun loadAll(): MutableList<Account> {
-        if (!accountsFile.exists()) return mutableListOf()
-        val type = object : TypeToken<MutableList<Account>>() {}.type
-        return runCatching { gson.fromJson<MutableList<Account>>(accountsFile.readText(), type) ?: mutableListOf() }.getOrDefault(mutableListOf())
+    suspend fun register(username: String, passwordRaw: String, displayName: String, avatarPath: String): Result<Account> = withContext(Dispatchers.IO) {
+        runCatching {
+            val passwordHash = hash(passwordRaw) // 将密码加密后再发送
+            val jsonBody = """
+                {
+                    "username": "$username",
+                    "password_hash": "$passwordHash",
+                    "display_name": "$displayName",
+                    "avatar_path": "$avatarPath"
+                }
+            """.trimIndent()
+
+            val rawResponse = api.postJson("/register", jsonBody)
+
+            // 使用正规的 Gson 解析，不再受空格影响
+            val type = object : TypeToken<ApiResponse<Any>>() {}.type
+            val response: ApiResponse<Any> = gson.fromJson(rawResponse, type)
+
+            if (response.code != 200) {
+                throw Exception(response.msg)
+            }
+
+            Account(username, passwordHash, displayName, avatarPath)
+        }
     }
 
-    private fun saveAll(list: List<Account>) = accountsFile.writeText(gson.toJson(list))
+    suspend fun login(username: String, passwordRaw: String): Result<Account> = withContext(Dispatchers.IO) {
+        runCatching {
+            val passwordHash = hash(passwordRaw)
+            val jsonBody = """{"username": "$username", "password_hash": "$passwordHash"}"""
+            val rawResponse = api.postJson("/login", jsonBody)
 
-    fun register(username: String, password: String, displayName: String, avatarPath: String): Boolean {
-        val all = loadAll()
-        if (all.any { it.username == username }) return false
-        all.add(Account(username, hash(password), displayName, avatarPath))
-        saveAll(all)
-        return true
+            val type = object : TypeToken<ApiResponse<Map<String, Any>>>() {}.type
+            val response: ApiResponse<Map<String, Any>> = gson.fromJson(rawResponse, type)
+
+            if (response.code != 200) throw Exception(response.msg)
+
+            val data = response.data ?: emptyMap()
+
+            // 安全地将 Gson 解析的数字转化为字符串
+            val ageVal = (data["age"] as? Number)?.toInt()?.takeIf { it > 0 }?.toString() ?: ""
+            val heightVal = (data["height_cm"] as? Number)?.toFloat()?.takeIf { it > 0f }?.let { if (it % 1 == 0f) it.toInt().toString() else it.toString() } ?: ""
+            val weightVal = (data["weight_kg"] as? Number)?.toFloat()?.takeIf { it > 0f }?.let { if (it % 1 == 0f) it.toInt().toString() else it.toString() } ?: ""
+
+            val account = Account(
+                username = username,
+                passwordHash = passwordHash,
+                displayName = data["display_name"]?.toString() ?: username,
+                avatarPath = data["avatar_path"]?.toString() ?: "",
+                signature = data["signature"]?.toString() ?: "",
+                gender = data["gender"]?.toString() ?: "",
+                age = ageVal,
+                heightCm = heightVal,
+                weightKg = weightVal,
+                goal = data["goals"]?.toString() ?: ""
+            )
+
+            currentFile.writeText(gson.toJson(account))
+            account
+        }
     }
 
-    fun login(username: String, password: String): Account? {
-        val account = loadAll().find { it.username == username && it.passwordHash == hash(password) }
-        if (account != null) currentFile.writeText(gson.toJson(account))
-        return account
+    // 2. 新增一个方法，专门用于把设置页的数据同步到云端
+    suspend fun updateSettingsToServer(account: Account): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val jsonBody = """
+                {
+                    "username": "${account.username}",
+                    "display_name": "${account.displayName}",
+                    "avatar_path": "${account.avatarPath.replace("\\", "\\\\")}",
+                    "signature": "${account.signature}",
+                    "gender": "${account.gender}",
+                    "age": ${account.age.ifBlank { "0" }},
+                    "height_cm": ${account.heightCm.ifBlank { "0" }},
+                    "weight_kg": ${account.weightKg.ifBlank { "0" }},
+                    "goals": "${account.goal}"
+                }
+            """.trimIndent()
+
+            val rawResponse = api.postJson("/update_settings", jsonBody)
+            val type = object : TypeToken<ApiResponse<Any>>() {}.type
+            val response: ApiResponse<Any> = gson.fromJson(rawResponse, type)
+
+            if (response.code != 200) {
+                throw Exception(response.msg)
+            }
+        }
     }
 
-    fun logout() { if (currentFile.exists()) currentFile.delete() }
+    fun logout() {
+        if (currentFile.exists()) currentFile.delete()
+    }
 
     fun currentAccount(): Account? = runCatching {
         if (currentFile.exists()) gson.fromJson(currentFile.readText(), Account::class.java) else null
     }.getOrNull()
 
     fun updateAccount(account: Account) {
-        val all = loadAll()
-        val idx = all.indexOfFirst { it.username == account.username }
-        if (idx >= 0) all[idx] = account else all.add(account)
-        saveAll(all)
         currentFile.writeText(gson.toJson(account))
     }
 }
-

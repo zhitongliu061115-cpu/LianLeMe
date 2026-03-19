@@ -2,6 +2,8 @@ package com.example.helloapp.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.helloapp.data.PlanRepository
 import com.example.helloapp.model.TrainingItem
@@ -12,13 +14,16 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
-class HomeViewModel(app: Application) : AndroidViewModel(app) {
+class HomeViewModel(
+    app: Application,
+    private val username: String?
+) : AndroidViewModel(app) {
 
     private val planRepo = PlanRepository(app)
 
     companion object {
         const val TOTAL_DAYS = 35
-        val CENTER_INDEX = TOTAL_DAYS / 2 // today's index in the range
+        val CENTER_INDEX = TOTAL_DAYS / 2
 
         fun greeting(): String {
             return when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
@@ -29,24 +34,8 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
                 else -> "夜深了 🌟"
             }
         }
-
-        /**
-         * Given an index in the 35-day range (0..34, center=17 is today),
-         * returns the day-of-week index 0=Mon..6=Sun for that date.
-         */
-        fun dayOfWeekForIndex(index: Int): Int {
-            val cal = Calendar.getInstance()
-            cal.add(Calendar.DAY_OF_MONTH, index - CENTER_INDEX)
-            val dow = cal.get(Calendar.DAY_OF_WEEK)
-            return when (dow) {
-                Calendar.MONDAY -> 0; Calendar.TUESDAY -> 1; Calendar.WEDNESDAY -> 2
-                Calendar.THURSDAY -> 3; Calendar.FRIDAY -> 4; Calendar.SATURDAY -> 5
-                else -> 6
-            }
-        }
     }
 
-    // selectedDay is now an index in the 35-day range; default to today (center)
     private val _selectedDay = MutableStateFlow(CENTER_INDEX)
     val selectedDay: StateFlow<Int> = _selectedDay.asStateFlow()
 
@@ -71,9 +60,28 @@ class HomeViewModel(app: Application) : AndroidViewModel(app) {
         loadPlan(dayIndex)
     }
 
+    fun refreshPlan() {
+        loadPlan(_selectedDay.value)
+    }
+
+    private fun dateForIndex(index: Int): Calendar {
+        return Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_MONTH, index - CENTER_INDEX)
+        }
+    }
+
     private fun loadPlan(rangeIndex: Int) {
-        // Convert range index to day-of-week (0=Mon..6=Sun) for the plan lookup
-        val dayOfWeek = dayOfWeekForIndex(rangeIndex)
-        _trainingItems.value = planRepo.getPlanForDay(dayOfWeek)
+        val targetDate = dateForIndex(rangeIndex)
+        _trainingItems.value = planRepo.getPlanForDate(username, targetDate)
+    }
+
+    class Factory(
+        private val app: Application,
+        private val username: String?
+    ) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            return HomeViewModel(app, username) as T
+        }
     }
 }
