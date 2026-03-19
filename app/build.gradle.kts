@@ -64,6 +64,13 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.3.1")
     implementation("androidx.camera:camera-view:1.3.1")
 
+    // MediaPipe Tasks Vision (用于提取人体关键点)
+    // 建议更新到较新稳定版
+    implementation("com.google.mediapipe:tasks-vision:0.10.14")
+    // TFLite
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+    implementation("org.tensorflow:tensorflow-lite-select-tf-ops:2.16.1")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
