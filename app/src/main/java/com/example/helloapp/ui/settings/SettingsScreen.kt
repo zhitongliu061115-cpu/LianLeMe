@@ -36,6 +36,7 @@ fun SettingsScreen(
     selectedNavItem: Int,
     onNavItemSelected: (Int) -> Unit,
     onLoginClick: () -> Unit,
+    onOpenOppoHealth: () -> Unit,
     onLogout: () -> Unit = {},
     refreshKey: Int = 0          // incremented by caller after auth returns
 ) {
@@ -369,6 +370,18 @@ fun SettingsScreen(
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f))
                 ) { Text("编辑资料", fontSize = 16.sp, color = Color.White) }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = onOpenOppoHealth,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                    border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp)
+                ) {
+                    Text("OPPO 健康数据", fontSize = 16.sp, color = Color.White)
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
