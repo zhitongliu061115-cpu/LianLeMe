@@ -15,6 +15,9 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "XF_APP_ID", "\"cab4f3e8\"")
+        buildConfigField("String", "XF_API_KEY", "\"27db2ee5d4df7c6bf88990da2d179fc8\"")
+        buildConfigField("String", "XF_API_SECRET", "\"MDdhYWNjZWQ2NDk2ODMyOWNkNWZiMjZm\"")
     }
 
     buildTypes {
@@ -33,6 +36,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }

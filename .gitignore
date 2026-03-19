@@ -12,3 +12,6 @@ captures/
 
 # Local SDK config
 local.properties
+
+!app/libs/*.aar
+!app/libs/*.jar
