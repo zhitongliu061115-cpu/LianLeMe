@@ -63,10 +63,11 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-
+    implementation("com.heytap.health:sdk:2.1.7")
     implementation(fileTree(mapOf(
         "dir" to "libs",
         "include" to listOf("*.jar", "*.aar")
+
     )))
 
     testImplementation("junit:junit:4.13.2")

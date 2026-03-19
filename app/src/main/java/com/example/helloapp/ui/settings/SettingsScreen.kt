@@ -28,8 +28,21 @@ import com.example.helloapp.model.Account
 import com.example.helloapp.ui.components.BottomNavigation
 import kotlinx.coroutines.launch
 import java.io.File
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
+import com.example.helloapp.BuildConfig
 
 private val ACCENT = Color(0xFF6DD5C3)
+private fun hasOppoHealthApp(context: Context): Boolean {
+    return try {
+        context.packageManager.getPackageInfo("com.heytap.health", 0)
+        true
+    } catch (e: Exception) {
+        false
+    }
+}
+
+
 
 @Composable
 fun SettingsScreen(
@@ -373,17 +386,21 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                OutlinedButton(
-                    onClick = onOpenOppoHealth,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp)
-                ) {
-                    Text("OPPO 健康数据", fontSize = 16.sp, color = Color.White)
+                if (hasOppoHealthApp(context)) {
+                    OutlinedButton(
+                        onClick = onOpenOppoHealth,
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
+                        border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.dp)
+                    ) {
+                        Text("OPPO 健康数据", fontSize = 16.sp, color = Color.White)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+
 
                 OutlinedButton(
                     onClick = {
