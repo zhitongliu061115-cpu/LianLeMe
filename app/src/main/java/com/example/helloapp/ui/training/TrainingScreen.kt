@@ -1,5 +1,6 @@
 package com.example.helloapp.ui.training
 
+import VoiceCoach
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -27,6 +28,16 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.helloapp.model.TrainingItem
 import com.example.helloapp.viewmodel.TrainingViewModel
+import androidx.camera.core.ImageAnalysis
+import android.graphics.Bitmap
+import android.graphics.Matrix
+import com.google.mediapipe.framework.image.BitmapImageBuilder
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
+import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.vision.core.RunningMode
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker
+import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarker.PoseLandmarkerOptions
+
 
 @Composable
 fun TrainingScreen(
@@ -55,8 +66,98 @@ fun TrainingScreen(
     val setTimeRemaining by viewModel.setTimeRemaining.collectAsState()
     val isTransitioning by viewModel.isTransitioning.collectAsState()
     val isFinished by viewModel.isFinished.collectAsState()
+    val detectedAction by viewModel.currentDetectedAction.collectAsState()
+    var missingPersonFrames by remember { mutableIntStateOf(0) }
+    val formFeedback by viewModel.formFeedback.collectAsState()
+    var currentLandmarks by remember { mutableStateOf<List<NormalizedLandmark>?>(null) }
 
     val context = LocalContext.current
+
+    val isPausedState = rememberUpdatedState(isPaused)
+
+    //初始化你的 LSTM 动作分析器
+    val poseActionAnalyzer = remember { PoseActionAnalyzer(context) }
+
+    LaunchedEffect(isPaused) {
+        if (!isPaused) {
+            poseActionAnalyzer.clearBuffer()
+        }
+    }
+
+    val voiceCoach = remember { VoiceCoach(context) }
+    DisposableEffect(Unit) {
+        onDispose { voiceCoach.shutdown() }
+    }
+
+    val poseLandmarker = remember {
+        val baseOptions = BaseOptions.builder()
+            // 确保你把 pose_landmarker_lite.task 放到了 assets 文件夹中
+            .setModelAssetPath("pose_landmarker.task")
+            .build()
+
+        val options = PoseLandmarkerOptions.builder()
+            .setBaseOptions(baseOptions)
+            .setRunningMode(RunningMode.LIVE_STREAM)
+            // MediaPipe 识别出结果后的回调
+            .setResultListener { result, _ ->
+                val landmarks = result.landmarks().getOrNull(0)
+                currentLandmarks = landmarks
+                if (landmarks != null) {
+                    val actionIndex = poseActionAnalyzer.processLandmarks(landmarks)
+
+                    android.util.Log.d("AI_Action_Test", "当前帧识别到的 actionIndex: $actionIndex")
+
+                    // 处理异常状态 UI (看不见人等)
+                    if (actionIndex == -1) {
+                        missingPersonFrames++
+                        if (missingPersonFrames > 30) {
+                            viewModel.updateDetectedStatus("请确保大部分身体进入镜头...")
+                        }
+                    }else{
+                        missingPersonFrames = 0
+                    }
+
+                    // 统一把坐标和 LSTM 的判定结果喂给 ViewModel 组合处理
+                    viewModel.processFrameWithPose(actionIndex, landmarks)
+                }else{
+                    missingPersonFrames++
+                    if (missingPersonFrames > 30) {
+                        viewModel.updateDetectedStatus("未检测到人体...")
+                    }
+                    // 🚨 极其重要：告诉 ViewModel 画面里没人了！
+                    // 传入 -1 让它清空滑动窗口投票池，防止幽灵计数
+                    viewModel.processFrameWithPose(-1, emptyList())
+                }
+            }
+            .build()
+
+        PoseLandmarker.createFromOptions(context, options)
+    }
+
+    // 👇 3. 创建 ImageAnalyzer 桥接 CameraX 和 MediaPipe
+    val imageAnalyzer = remember {
+        ImageAnalysis.Analyzer { imageProxy ->
+            if (isPausedState.value) {
+                imageProxy.close()
+                return@Analyzer
+            }
+            val bitmap = imageProxy.toBitmap()
+            // 解决前置摄像头的旋转问题 (根据实际情况调整旋转角度)
+            val matrix = Matrix().apply { postRotate(imageProxy.imageInfo.rotationDegrees.toFloat()) }
+            val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+
+            // 转换成 MediaPipe 需要的格式
+            val mpImage = BitmapImageBuilder(rotatedBitmap).build()
+
+            // 喂给 MediaPipe (传入当前时间戳)
+            val frameTime = System.currentTimeMillis()
+            poseLandmarker.detectAsync(mpImage, frameTime)
+
+            // 必须 close，否则会阻塞后面的帧
+            imageProxy.close()
+        }
+    }
+
     var hasCameraPermission by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -69,12 +170,23 @@ fun TrainingScreen(
         if (!hasCameraPermission) launcher.launch(Manifest.permission.CAMERA)
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            poseActionAnalyzer.close()
+            poseLandmarker.close()
+        }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize().background(Color(0xFF3D4C5C))
     ) {
         // ─── 背景：摄像头 ───
         if (hasCameraPermission && !isFinished) {
-            CameraPreview(modifier = Modifier.fillMaxSize())
+            CameraPreview(
+                modifier = Modifier.fillMaxSize(),
+                imageAnalyzer = imageAnalyzer
+            )
+
         } else if (!isFinished) {
             Box(
                 modifier = Modifier.fillMaxSize().background(Color(0xFF2d3748)),
@@ -144,6 +256,34 @@ fun TrainingScreen(
                     )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 左侧：AI 实时状态
+                    Text(
+                        text = "动作: $detectedAction",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFFD700) // 金黄色，醒目一点
+                    )
+
+                    // 右侧：原有的次数/时间逻辑
+                    Text(
+                        text = if (isTimeBased) {
+                            val m = setTimeRemaining / 60
+                            val s = setTimeRemaining % 60
+                            "剩余 ${String.format("%02d:%02d", m, s)}"
+                        } else {
+                            "$currentRep/$repsPerSet"
+                        },
+                        fontSize = 14.sp,
+                        color = Color.White
+                    )
+                }
+
                 // 组信息
                 Text(
                     text = "第 ${currentSet} 组 / 共 $totalSets 组",
@@ -169,6 +309,30 @@ fun TrainingScreen(
                     fontSize = 14.sp,
                     color = Color.White,
                     modifier = Modifier.align(Alignment.End)
+                )
+            }
+        }
+
+        // ─── 纠错信息悬浮提示 ───
+        AnimatedVisibility(
+            visible = formFeedback != null && !isFinished && !isPaused && !isTransitioning,
+            enter = slideInVertically(initialOffsetY = { -40 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -40 }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 160.dp) // 根据你的顶部栏高度调整
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xFFFF4C4C).copy(alpha = 0.9f)) // 醒目的红色底
+                    .padding(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = formFeedback ?: "",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
