@@ -35,7 +35,7 @@ fun StepBodyData(
 
         // Gender
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            listOf("male" to "♂ 男", "female" to "♀ 女").forEach { (key, label) ->
+            listOf("男" to "♂ 男", "女" to "♀ 女").forEach { (key, label) ->
                 val selected = gender == key
                 Box(
                     modifier = Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
