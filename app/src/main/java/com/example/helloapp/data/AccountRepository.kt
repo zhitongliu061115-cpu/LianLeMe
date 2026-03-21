@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.helloapp.data.remote.AiApiService
 import com.example.helloapp.data.remote.AiConfig
 import com.example.helloapp.model.Account
+import com.example.helloapp.model.UserProfile
 import com.example.helloapp.model.ai.ApiResponse
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -16,6 +17,13 @@ class AccountRepository(private val context: Context) {
     private val gson = Gson()
     private val api = AiApiService(AiConfig.BASE_URL)
     private val currentFile get() = context.filesDir.resolve("current_account.json")
+
+    private fun sanitizeForFileName(username: String): String {
+        val sanitized = username.trim().map { ch ->
+            if (ch.isLetterOrDigit() || ch == '_' || ch == '-') ch else '_'
+        }.joinToString("")
+        return sanitized.ifBlank { "unknown" }
+    }
 
     // 恢复密码加密，保证存入数据库的是哈希值
     private fun hash(password: String): String {
@@ -81,6 +89,24 @@ class AccountRepository(private val context: Context) {
             )
 
             currentFile.writeText(gson.toJson(account))
+
+            // 如果服务器返回了完整的用户档案信息，同步创建 UserProfile 文件
+            if (account.gender.isNotBlank() && account.age.isNotBlank()) {
+                val userRepo = UserRepository(context)
+                val profile = UserProfile(
+                    gender = account.gender,
+                    age = account.age.toIntOrNull() ?: 0,
+                    weightKg = account.weightKg.toFloatOrNull() ?: 0f,
+                    heightCm = account.heightCm.toFloatOrNull() ?: 0f,
+                    goals = if (account.goal.isNotBlank()) account.goal.split("、").filter { it.isNotBlank() } else emptyList(),
+                    focusAreas = emptyList(),
+                    workoutTypes = emptyList()
+                )
+                // 直接保存本地 UserProfile 文件，避免重复调用服务器
+                val profileFile = context.filesDir.resolve("user_profile_${sanitizeForFileName(username)}.json")
+                profileFile.writeText(gson.toJson(profile))
+            }
+
             account
         }
     }

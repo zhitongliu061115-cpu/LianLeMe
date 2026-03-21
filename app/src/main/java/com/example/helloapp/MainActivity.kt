@@ -27,10 +27,12 @@ import com.example.helloapp.viewmodel.AICoachViewModel
 
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.ViewModelProvider
+import com.heytap.databaseengine.HeytapHealthApi
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        HeytapHealthApi.init(applicationContext)
         enableEdgeToEdge()
         setContent {
             HelloAppTheme {
